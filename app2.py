@@ -36,7 +36,7 @@ app_id = "com.Info_BMKG"
 
 # Fetch reviews for the app from Google Play Store
 # For testing, we can load a smaller subset or mock data
-df_busu = pd.read_csv('data_reviews_with_sentiment.csv')  # You can replace this with your actual dataset
+df_busu = pd.read_csv('data_reviews_with_sentiment (5).csv')  # You can replace this with your actual dataset
 
 # Sentiment function based on the score
 def sentiment(score):
@@ -124,12 +124,12 @@ plt.axis("off")
 st.pyplot(plt)
 
 # Save the data with sentiment to CSV
-df_busu_clean.to_csv('data_reviews_with_sentiment.csv', index=False)
+df_busu_clean.to_csv('data_reviews_with_sentiment (5)', index=False)
 
 # Streamlit file download button
 st.download_button(
     label="Download cleaned data with sentiment",
     data=df_busu_clean.to_csv(index=False),
-    file_name="data_reviews_with_sentiment.csv",
+    file_name="data_reviews_with_sentiment.csv (5)",
     mime="text/csv"
 )
