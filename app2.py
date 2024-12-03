@@ -1,5 +1,5 @@
 # Install required libraries (uncomment if needed)
-#!pip install google-play-scraper wordcloud seaborn nltk scikit-learn streamlit matplotlib
+# !pip install google-play-scraper wordcloud seaborn nltk scikit-learn streamlit matplotlib
 
 # Import libraries
 import pandas as pd
@@ -31,7 +31,7 @@ result, continuation_token = reviews(
     lang='id',        # Language: Indonesian
     country='id',     # Country: Indonesia
     sort=Sort.NEWEST, # Sort by newest reviews
-    count=500,        # Reduced number of reviews for quicker testing
+    count=2500,       # Fetch 2500 reviews
     filter_score_with=None  # No score filter
 )
 
@@ -49,6 +49,13 @@ def sentiment(score):
 
 # Apply sentiment function to the score column
 df_busu['sentiment'] = df_busu['score'].apply(sentiment)
+
+# Streamlit app layout
+st.title("Analisis Sentimen Aplikasi Info BMKG")
+
+# Display the first 2500 data (original)
+st.subheader("Tabel Data (2500 Review Original)")
+st.dataframe(df_busu[['content', 'score', 'sentiment']].head(2500))
 
 # Clean the text data
 def clean_text(text):
@@ -68,12 +75,9 @@ df_busu['text_StopWord'] = df_busu['text_clean'].apply(lambda x: ' '.join([word 
 stemmer = PorterStemmer()
 df_busu['text_stemmed'] = df_busu['text_StopWord'].apply(lambda x: ' '.join([stemmer.stem(word) for word in x.split()]))
 
-# Streamlit app layout
-st.title("Analisis Sentimen Aplikasi Info BMKG")
-
-# Display cleaned data
-st.subheader("Tabel Data")
-st.dataframe(df_busu[['content', 'sentiment', 'text_stemmed']].head(10))
+# Display the first 10 data after stemming
+st.subheader("Tabel Data Setelah Stemming (10 Review)")
+st.dataframe(df_busu[['content', 'text_stemmed', 'sentiment']].head(10))
 
 # Plot Sentiment Distribution
 st.subheader("Distribusi Sentimen")
@@ -118,11 +122,6 @@ ax.set_title('Confusion Matrix')
 ax.set_xlabel('Predicted')
 ax.set_ylabel('True')
 st.pyplot(fig)
-
-# Display example predictions
-st.subheader("Contoh Prediksi Model")
-test_results = pd.DataFrame({'Review': X_test, 'Actual Sentiment': y_test, 'Predicted Sentiment': y_pred})
-st.dataframe(test_results.head(10))
 
 # Generate and Display Word Cloud
 st.subheader("Word Cloud")
