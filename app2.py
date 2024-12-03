@@ -1,50 +1,44 @@
-import streamlit as st
+# Install required libraries (uncomment if needed)
+#!pip install google-play-scraper wordcloud seaborn nltk scikit-learn streamlit matplotlib
+
+# Import libraries
 import pandas as pd
 import numpy as np
 import nltk
 import re
 import matplotlib.pyplot as plt
-from nltk.tokenize import word_tokenize
+import seaborn as sns
 from nltk.corpus import stopwords
+from nltk.stem import PorterStemmer
 from wordcloud import WordCloud
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import SVC
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import confusion_matrix, classification_report
-from nltk.stem import PorterStemmer
-import seaborn as sns
+from sklearn.metrics import confusion_matrix, classification_report, accuracy_score
 from google_play_scraper import Sort, reviews
+import streamlit as st
 
 # Download necessary NLTK resources
 nltk.download('punkt')
 nltk.download('stopwords')
 
-st.title("Analisis Sentimen Ulasan Aplikasi Info BMKG")
-
-# Fetch data
-@st.cache_data
-def fetch_reviews(app_id, count=100):
-    result, _ = reviews(
-        app_id,
-        lang='id',
-        country='id',
-        sort=Sort.NEWEST,
-        count=count
-    )
-    df = pd.DataFrame(np.array(result), columns=['review'])
-    return df.join(pd.DataFrame(df.pop('review').tolist()))
-
+# Define the app ID for Info BMKG
 app_id = "com.Info_BMKG"
-st.sidebar.header("Konfigurasi")
-review_count = st.sidebar.slider("Jumlah ulasan yang diambil", min_value=100, max_value=5000, value=1000, step=100)
 
-df = fetch_reviews(app_id, review_count)
+# Fetch reviews for the app from Google Play Store
+result, continuation_token = reviews(
+    app_id,           # App ID
+    lang='id',        # Language: Indonesian
+    country='id',     # Country: Indonesia
+    sort=Sort.NEWEST, # Sort by newest reviews
+    count=500,        # Reduced number of reviews for quicker testing
+    filter_score_with=None  # No score filter
+)
 
-# Display raw data
-st.subheader("Data Mentah")
-st.dataframe(df)
+# Convert reviews to a DataFrame
+df_busu = pd.DataFrame(result)
 
-# Sentiment classification
+# Sentiment function based on the score
 def sentiment(score):
     if score <= 2:
         return 'Negatif'
@@ -53,41 +47,89 @@ def sentiment(score):
     else:
         return 'Positif'
 
-df['sentiment'] = df['score'].apply(sentiment)
+# Apply sentiment function to the score column
+df_busu['sentiment'] = df_busu['score'].apply(sentiment)
 
-# Clean text
+# Clean the text data
 def clean_text(text):
     text = text.lower()
-    text = re.sub(r"@[A-Za-z0-9]+|(\w+:\/\/\S+)|^rt|http\S*|[^\w\s]", "", text)
-    text = re.sub(r"\d+", "", text)
+    text = re.sub(r"@[A-Za-z0-9]+|(\w+:\/\/\S+)|^rt|http\S*|[^\w\s]", "", text)  # Remove unwanted characters
+    text = re.sub(r"\d+", "", text)  # Remove numbers
     return text
 
-df['text_clean'] = df['content'].apply(clean_text)
+# Apply text cleaning
+df_busu['text_clean'] = df_busu['content'].apply(clean_text)
 
 # Remove stopwords
-stop = stopwords.words('indonesian')
-df['text_stopwords_removed'] = df['text_clean'].apply(lambda x: ' '.join([word for word in x.split() if word not in stop]))
+stop = set(stopwords.words('indonesian'))
+df_busu['text_StopWord'] = df_busu['text_clean'].apply(lambda x: ' '.join([word for word in x.split() if word not in stop]))
 
-# Stemming
+# Apply stemming
 stemmer = PorterStemmer()
-df['text_stemmed'] = df['text_stopwords_removed'].apply(lambda x: ' '.join([stemmer.stem(word) for word in x.split()]))
+df_busu['text_stemmed'] = df_busu['text_StopWord'].apply(lambda x: ' '.join([stemmer.stem(word) for word in x.split()]))
 
-# Sentiment distribution visualization
+# Streamlit app layout
+st.title("Analisis Sentimen Aplikasi Info BMKG")
+
+# Display cleaned data
+st.subheader("Tabel Data")
+st.dataframe(df_busu[['content', 'sentiment', 'text_stemmed']].head(10))
+
+# Plot Sentiment Distribution
 st.subheader("Distribusi Sentimen")
-sns.countplot(x='sentiment', data=df)
-st.pyplot()
+fig, ax = plt.subplots()
+sns.countplot(x='sentiment', data=df_busu, ax=ax)
+ax.set_title('Sentiment Distribution')
+ax.set_xlabel('Sentiment')
+ax.set_ylabel('Count')
+st.pyplot(fig)
 
-# Word Cloud
+# Prepare data for machine learning (TF-IDF Vectorization)
+X = df_busu['text_stemmed']
+y = df_busu['sentiment']
+
+# Split the data into training and test sets
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+# Convert text data to TF-IDF features
+vectorizer = TfidfVectorizer(max_features=5000)
+X_train_tfidf = vectorizer.fit_transform(X_train)
+X_test_tfidf = vectorizer.transform(X_test)
+
+# Train a Support Vector Classifier (SVC) model
+svm_model = SVC(kernel='linear')
+svm_model.fit(X_train_tfidf, y_train)
+
+# Predict on the test data
+y_pred = svm_model.predict(X_test_tfidf)
+
+# Display Classification Report and Accuracy Score
+st.subheader("Hasil Evaluasi Model")
+st.text("Classification Report:")
+st.text(classification_report(y_test, y_pred))
+st.text(f"Accuracy: {accuracy_score(y_test, y_pred):.2f}")
+
+# Plot Confusion Matrix
+st.subheader("Confusion Matrix")
+cm = confusion_matrix(y_test, y_pred)
+fig, ax = plt.subplots()
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['Negatif', 'Netral', 'Positif'], yticklabels=['Negatif', 'Netral', 'Positif'], ax=ax)
+ax.set_title('Confusion Matrix')
+ax.set_xlabel('Predicted')
+ax.set_ylabel('True')
+st.pyplot(fig)
+
+# Display example predictions
+st.subheader("Contoh Prediksi Model")
+test_results = pd.DataFrame({'Review': X_test, 'Actual Sentiment': y_test, 'Predicted Sentiment': y_pred})
+st.dataframe(test_results.head(10))
+
+# Generate and Display Word Cloud
 st.subheader("Word Cloud")
-all_text = " ".join(df["text_stemmed"].dropna())
-wordcloud = WordCloud(width=700, height=400, background_color="white").generate(all_text)
-plt.figure(figsize=(10, 5))
-plt.imshow(wordcloud, interpolation="bilinear")
-plt.axis("off")
-st.pyplot()
+all_text = " ".join(df_busu["text_stemmed"].dropna())
+wordcloud = WordCloud(width=700, height=400, background_color="white", colormap="jet").generate(all_text)
 
-# Export data
-st.sidebar.subheader("Ekspor Data")
-if st.sidebar.button("Unduh CSV"):
-    df.to_csv("data_reviews_with_sentiment.csv", index=False)
-    st.sidebar.success("Data berhasil diekspor!")
+fig, ax = plt.subplots()
+ax.imshow(wordcloud, interpolation="bilinear")
+ax.axis("off")
+st.pyplot(fig)
