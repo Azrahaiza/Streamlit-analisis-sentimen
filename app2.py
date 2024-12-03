@@ -1,139 +1,117 @@
-# Install required libraries (uncomment if needed)
-# !pip install google-play-scraper wordcloud seaborn nltk scikit-learn streamlit matplotlib tensorflow imbalanced-learn
-
-# Import libraries
 import pandas as pd
 import numpy as np
 import nltk
 import re
 import matplotlib.pyplot as plt
 import seaborn as sns
+import streamlit as st
+from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
-from nltk.stem import PorterStemmer
+from wordcloud import WordCloud
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.svm import SVC
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import confusion_matrix, classification_report
+from nltk.stem import PorterStemmer
 from google_play_scraper import Sort, reviews
-from imblearn.over_sampling import SMOTE
-import tensorflow as tf
-from tensorflow.keras.preprocessing.text import Tokenizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Embedding, LSTM, Dense, Dropout
-import streamlit as st
 
 # Download necessary NLTK resources
 nltk.download('punkt')
 nltk.download('stopwords')
 
-# Fetch 5000 reviews for the app from Google Play Store
-st.subheader("Mengambil 5000 Review dari Google Play Store")
-app_id = "com.Info_BMKG"
-result, _ = reviews(
-    app_id,
-    lang='id',
-    country='id',
-    sort=Sort.NEWEST,
-    count=5000,
-    filter_score_with=None
-)
+# Streamlit App Title
+st.title("Sentiment Analysis for Info BMKG Reviews")
 
-# Convert reviews to DataFrame
-df_busu = pd.DataFrame(result)
+# Input: App ID
+app_id = st.text_input("Enter the App ID for analysis (default: com.Info_BMKG):", "com.Info_BMKG")
 
-# Define sentiment based on score
-def sentiment(score):
-    if score <= 2:
-        return 'Negatif'
-    elif score == 3:
-        return 'Netral'
-    else:
-        return 'Positif'
+# Fetch reviews button
+if st.button("Fetch Reviews"):
+    # Fetch reviews
+    result, _ = reviews(app_id, lang='id', country='id', sort=Sort.NEWEST, count=5000)
+    df_busu = pd.DataFrame(np.array(result), columns=['review'])
+    df_busu = df_busu.join(pd.DataFrame(df_busu.pop('review').tolist(), columns=['content', 'score', 'at', 'userName']))
 
-# Apply sentiment function to the score column
-df_busu['sentiment'] = df_busu['score'].apply(sentiment)
+    # Sentiment function
+    def sentiment(score):
+        if score <= 2:
+            return 'Negatif'
+        elif score == 3:
+            return 'Netral'
+        else:
+            return 'Positif'
 
-# Clean the text data
-def clean_text(text):
-    text = text.lower()
-    text = re.sub(r"@[A-Za-z0-9]+|(\w+:\/\/\S+)|^rt|http\S*|[^\w\s]", "", text)  # Remove unwanted characters
-    text = re.sub(r"\d+", "", text)  # Remove numbers
-    return text
+    # Apply sentiment function
+    df_busu['sentiment'] = df_busu['score'].apply(sentiment)
 
-df_busu['text_clean'] = df_busu['content'].apply(clean_text)
+    # Clean text function
+    def clean_text(df, text_field, new_text_field_name):
+        df[new_text_field_name] = df[text_field].str.lower()
+        df[new_text_field_name] = df[new_text_field_name].apply(
+            lambda elem: re.sub(r"@[A-Za-z0-9]+|(\w+:\/\/\S+)|^rt|http\S*|[^\w\s]", "", elem)
+        )
+        df[new_text_field_name] = df[new_text_field_name].apply(lambda elem: re.sub(r"\d+", "", elem))
+        return df
 
-# Remove stopwords
-stop = set(stopwords.words('indonesian'))
-df_busu['text_StopWord'] = df_busu['text_clean'].apply(lambda x: ' '.join([word for word in x.split() if word not in stop]))
+    # Apply cleaning
+    df_busu_clean = clean_text(df_busu, 'content', 'text_clean')
 
-# Apply stemming
-stemmer = PorterStemmer()
-df_busu['text_stemmed'] = df_busu['text_StopWord'].apply(lambda x: ' '.join([stemmer.stem(word) for word in x.split()]))
+    # Remove stopwords
+    stop = stopwords.words('indonesian')
+    df_busu_clean['text_StopWord'] = df_busu_clean['text_clean'].apply(
+        lambda x: ' '.join([word for word in x.split() if word not in stop])
+    )
 
-# Display the first 5000 data
-st.subheader("Menampilkan 5000 Data Review Awal")
-st.dataframe(df_busu[['content', 'text_clean', 'sentiment']].head(5000))
+    # Apply stemming
+    stemmer = PorterStemmer()
+    df_busu_clean['text_stemmed'] = df_busu_clean['text_StopWord'].apply(
+        lambda x: ' '.join([stemmer.stem(word) for word in x.split()])
+    )
 
-# Display 10 data after stemming
-st.subheader("10 Data Setelah Stemming")
-st.dataframe(df_busu[['content', 'text_stemmed', 'sentiment']].head(10))
+    # Display DataFrame
+    st.write("Sample Data:")
+    st.write(df_busu_clean.head(10))
 
-# Prepare data for machine learning
-X = df_busu['text_stemmed']
-y = df_busu['sentiment']
+    # Visualize sentiment distribution
+    st.subheader("Sentiment Distribution")
+    fig, ax = plt.subplots()
+    sns.countplot(x='sentiment', data=df_busu_clean, ax=ax)
+    st.pyplot(fig)
 
-# Encode target labels
-label_mapping = {'Negatif': 0, 'Netral': 1, 'Positif': 2}
-y = y.map(label_mapping)
+    # Word Cloud
+    st.subheader("Word Cloud")
+    all_text = " ".join(df_busu_clean["text_stemmed"].dropna())
+    wordcloud = WordCloud(width=700, height=400, background_color="white", colormap="jet").generate(all_text)
+    fig, ax = plt.subplots()
+    ax.imshow(wordcloud, interpolation="bilinear")
+    ax.axis("off")
+    st.pyplot(fig)
 
-# Tokenize and pad sequences
-tokenizer = Tokenizer(num_words=5000)
-tokenizer.fit_on_texts(X)
-X_tokenized = tokenizer.texts_to_sequences(X)
-X_padded = pad_sequences(X_tokenized, maxlen=100)
+    # Prepare data for machine learning
+    X = df_busu_clean['text_stemmed']
+    y = df_busu_clean['sentiment']
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+    vectorizer = TfidfVectorizer(max_features=5000)
+    X_train_tfidf = vectorizer.fit_transform(X_train)
+    X_test_tfidf = vectorizer.transform(X_test)
 
-# Split the data into training and test sets
-X_train, X_test, y_train, y_test = train_test_split(X_padded, y, test_size=0.3, random_state=42)
+    # Train SVM model
+    svm_model = SVC(kernel='linear')
+    svm_model.fit(X_train_tfidf, y_train)
+    y_pred = svm_model.predict(X_test_tfidf)
 
-# Apply SMOTE for balancing the data
-smote = SMOTE(random_state=42)
-X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)
+    # Classification Report
+    st.subheader("Model Evaluation")
+    st.text("Classification Report:")
+    st.text(classification_report(y_test, y_pred))
 
-# Build LSTM model
-embedding_dim = 128
-model = Sequential([
-    Embedding(input_dim=5000, output_dim=embedding_dim, input_length=100),
-    LSTM(128, return_sequences=False),
-    Dropout(0.5),
-    Dense(128, activation='relu'),
-    Dropout(0.5),
-    Dense(3, activation='softmax')  # 3 classes: Negatif, Netral, Positif
-])
+    # Confusion Matrix
+    cm = confusion_matrix(y_test, y_pred)
+    fig, ax = plt.subplots()
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                xticklabels=['Negatif', 'Netral', 'Positif'], 
+                yticklabels=['Negatif', 'Netral', 'Positif'], ax=ax)
+    st.pyplot(fig)
 
-model.compile(loss='sparse_categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-
-# Train the model
-st.subheader("Training Model LSTM...")
-history = model.fit(X_train_resampled, y_train_resampled, epochs=5, batch_size=32, validation_split=0.2)
-
-# Evaluate the model
-st.subheader("Hasil Evaluasi Model LSTM")
-loss, accuracy = model.evaluate(X_test, y_test)
-st.text(f"Accuracy: {accuracy:.2f}")
-
-# Predict on the test data
-y_pred_prob = model.predict(X_test)
-y_pred = np.argmax(y_pred_prob, axis=1)
-
-# Display Classification Report
-st.subheader("Classification Report:")
-st.text(classification_report(y_test, y_pred, target_names=['Negatif', 'Netral', 'Positif']))
-
-# Plot Confusion Matrix
-st.subheader("Confusion Matrix")
-cm = confusion_matrix(y_test, y_pred)
-fig, ax = plt.subplots()
-sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['Negatif', 'Netral', 'Positif'], yticklabels=['Negatif', 'Netral', 'Positif'], ax=ax)
-ax.set_title('Confusion Matrix')
-ax.set_xlabel('Predicted')
-ax.set_ylabel('True')
-st.pyplot(fig)
+    # Save data to CSV
+    st.download_button("Download Cleaned Data", data=df_busu_clean.to_csv(index=False), file_name="cleaned_data.csv")
