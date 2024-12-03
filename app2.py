@@ -36,7 +36,7 @@ app_id = "com.Info_BMKG"
 
 # Fetch reviews for the app from Google Play Store
 # For testing, we can load a smaller subset or mock data
-df_busu = pd.read_csv('your_reviews_file.csv')  # You can replace this with your actual dataset
+df_busu = pd.read_csv('data_reviews_with_sentiment.csv')  # You can replace this with your actual dataset
 
 # Sentiment function based on the score
 def sentiment(score):
